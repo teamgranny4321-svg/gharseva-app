@@ -70,12 +70,32 @@
     let isSignup = true;
     let pendingUser = null;
 
-    // Fix 4: Persistent Auto Login Check
     window.onload = function() {
+        // Auto Login Check
         const savedUser = getCurrentUser();
         if (savedUser && savedUser.uid) {
             redirectUser(savedUser.userType);
+            return;
         }
+
+        // GOOGLE LOGIN REDIRECT CATCHER (App ke andar popup kaam nahi karta, isliye redirect pakadna padega)
+        firebase.auth().getRedirectResult().then((result) => {
+            if (result && result.user) {
+                const user = result.user;
+                firebase.database().ref('users/' + user.uid).once('value').then((snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        setCurrentUser(user.uid, data.email, data.userType, data.name, data.phone);
+                        redirectUser(data.userType);
+                    } else {
+                        pendingUser = user;
+                        askGoogleUserDetails(user);
+                    }
+                });
+            }
+        }).catch((error) => {
+            document.getElementById('errorMsg').innerText = friendlyError(error);
+        });
     };
 
     function toggleMode() {
@@ -90,29 +110,11 @@
     }
     toggleMode(); toggleMode();
 
+    // UPDATED: App WebViewer ke liye Popup ki jagah Redirect use kiya hai
     function googleSignIn() {
         const provider = new firebase.auth.GoogleAuthProvider();
-        const errorEl = document.getElementById('errorMsg');
-        errorEl.innerText = '';
-
-        firebase.auth().signInWithPopup(provider)
-            .then((result) => {
-                const user = result.user;
-                firebase.database().ref('users/' + user.uid).once('value').then((snapshot) => {
-                    const data = snapshot.val();
-                    if (data) {
-                        setCurrentUser(user.uid, data.email, data.userType, data.name, data.phone);
-                        redirectUser(data.userType);
-                    } else {
-                        pendingUser = user;
-                        askGoogleUserDetails(user);
-                    }
-                });
-            })
-            .catch((error) => {
-                if (error.code === 'auth/popup-closed-by-user') return;
-                errorEl.innerText = friendlyError(error);
-            });
+        document.getElementById('errorMsg').innerText = 'Google khul raha hai, kripya pratiksha karein...';
+        firebase.auth().signInWithRedirect(provider);
     }
 
     function askGoogleUserDetails(user) {
