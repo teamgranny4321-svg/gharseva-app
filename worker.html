@@ -136,8 +136,7 @@
     </div>
 
 <script>
-    const user = getCurrentUser();
-    if (!user || user.userType !== 'worker') { window.location.href = 'index.html'; }
+let user = null;
 
     let myServices = [];
     let isOnline = false;
@@ -148,22 +147,47 @@
     let allJobsListener = null;
     let step = "arrival";
 
-    // ---------------- Load worker profile ----------------
-    firebase.database().ref('users/' + user.uid).once('value').then(snap => {
-        const data = snap.val();
-        if (data) {
-            document.getElementById('statRating').innerText = (data.rating || 5).toFixed(1);
-            document.getElementById('statJobs').innerText = data.jobsCompleted || 0;
-            if (data.rating && data.rating <= 2.5 && data.ratingCount >= 3) {
-                document.getElementById('warningAlert').style.display = 'block';
+    // ---------------- Load worker profile (after session restore) ----------------
+    restoreSession((restoredUser) => {
+        if (!restoredUser || restoredUser.userType !== 'worker') {
+            window.location.href = 'index.html';
+            return;
+        }
+        user = restoredUser;
+
+        firebase.database().ref('users/' + user.uid).once('value').then(snap => {
+            const data = snap.val();
+            if (data) {
+                document.getElementById('statRating').innerText = (data.rating || 5).toFixed(1);
+                document.getElementById('statJobs').innerText = data.jobsCompleted || 0;
+                if (data.rating && data.rating <= 2.5 && data.ratingCount >= 3) {
+                    document.getElementById('warningAlert').style.display = 'block';
+                }
+                myServices = data.services || [];
             }
-            myServices = data.services || [];
-        }
-        if (myServices.length === 0) {
-            showSetup();
-        } else {
-            document.getElementById('mainWorkView').classList.remove('hidden');
-        }
+            if (myServices.length === 0) {
+                showSetup();
+            } else {
+                document.getElementById('mainWorkView').classList.remove('hidden');
+            }
+
+            // Resume active job on page reload (was previously a separate block at file end)
+            firebase.database().ref('jobs').orderByChild('workerUid').equalTo(user.uid).once('value').then(snap2 => {
+                const jobs = snap2.val();
+                if (!jobs) return;
+                const active = Object.values(jobs).find(j => ['accepted', 'started'].includes(j.status));
+                if (active && myServices.length > 0) {
+                    currentJobId = active.jobId;
+                    step = active.status === 'started' ? 'complete' : 'arrival';
+                    myLocation = { lat: active.workerLat, lng: active.workerLng };
+                    document.getElementById('mainWorkView').classList.remove('hidden');
+                    document.getElementById('noActiveJob').classList.add('hidden');
+                    document.getElementById('activeJobBox').classList.remove('hidden');
+                    listenToActiveJob(currentJobId);
+                    startLocationWatch();
+                }
+            });
+        });
     });
 
     // ---------------- Setup / Edit services ----------------
@@ -218,13 +242,14 @@
             stopListeningForJobs();
             document.getElementById('waitingMsg').classList.add('hidden');
             document.getElementById('newJobsList').innerHTML = '';
-          }
+        }
     }
 
     function startLocationWatch() {
         locationWatchId = watchMyLocation((lat, lng) => {
             myLocation = { lat, lng };
             firebase.database().ref('users/' + user.uid).update({ lat, lng, lastSeen: new Date().toISOString() });
+            // If currently on an active job, also update job's workerLat/Lng for customer tracking
             if (currentJobId) {
                 firebase.database().ref('jobs/' + currentJobId).update({ workerLat: lat, workerLng: lng });
             }
@@ -236,26 +261,37 @@
     }
 
     // ---------------- Listen for nearby matching jobs (status = searching) ----------------
+    let lastSeenJobIds = new Set();
+
     function startListeningForJobs() {
         allJobsListener = firebase.database().ref('jobs').orderByChild('status').equalTo('searching');
         allJobsListener.on('value', (snapshot) => {
-            if (currentJobId) return;
+            if (currentJobId) return; // already on a job, ignore new alerts
             const jobs = snapshot.val();
             const listEl = document.getElementById('newJobsList');
             listEl.innerHTML = '';
-            if (!jobs) { document.getElementById('waitingMsg').classList.remove('hidden'); return; }
+            if (!jobs) { document.getElementById('waitingMsg').classList.remove('hidden'); lastSeenJobIds.clear(); return; }
 
             const matchingJobs = Object.values(jobs).filter(job => {
                 if (!myServices.includes(job.serviceId)) return false;
                 const dist = getDistanceKm(myLocation.lat, myLocation.lng, job.customerLat, job.customerLng);
-                return dist <= 4;
+                return dist <= 4; // 4km range filter
             });
 
             if (matchingJobs.length === 0) {
                 document.getElementById('waitingMsg').classList.remove('hidden');
+                lastSeenJobIds.clear();
                 return;
             }
             document.getElementById('waitingMsg').classList.add('hidden');
+
+            // Alert (sound + vibration) only when a genuinely NEW job shows up
+            const currentIds = matchingJobs.map(j => j.jobId);
+            const hasNewJob = currentIds.some(id => !lastSeenJobIds.has(id));
+            if (hasNewJob) {
+                playAlertSound();
+            }
+            lastSeenJobIds = new Set(currentIds);
 
             matchingJobs.forEach(job => {
                 const dist = getDistanceKm(myLocation.lat, myLocation.lng, job.customerLat, job.customerLng).toFixed(1);
@@ -277,11 +313,13 @@
     function stopListeningForJobs() {
         if (allJobsListener) allJobsListener.off('value');
         allJobsListener = null;
+        lastSeenJobIds.clear();
     }
 
     // ---------------- Accept a job ----------------
     function acceptJob(jobId) {
         const jobRef = firebase.database().ref('jobs/' + jobId);
+        // Transaction-like guard: only accept if still searching (avoid 2 workers accepting same job)
         jobRef.once('value').then(snap => {
             const job = snap.val();
             if (!job || job.status !== 'searching') {
@@ -373,6 +411,7 @@
         document.getElementById('noActiveJob').classList.remove('hidden');
         document.getElementById('otpInput').value = "";
         if (isOnline) document.getElementById('waitingMsg').classList.remove('hidden');
+        // refresh rating/jobs stat display
         firebase.database().ref('users/' + user.uid).once('value').then(snap => {
             const data = snap.val();
             if (data) {
@@ -420,23 +459,6 @@
             });
         });
     }
-
-    // ---------------- Resume active job on page reload ----------------
-    firebase.database().ref('jobs').orderByChild('workerUid').equalTo(user.uid).once('value').then(snap => {
-        const jobs = snap.val();
-        if (!jobs) return;
-        const active = Object.values(jobs).find(j => ['accepted', 'started'].includes(j.status));
-        if (active && myServices.length > 0) {
-            currentJobId = active.jobId;
-            step = active.status === 'started' ? 'complete' : 'arrival';
-            myLocation = { lat: active.workerLat, lng: active.workerLng };
-            document.getElementById('mainWorkView').classList.remove('hidden');
-            document.getElementById('noActiveJob').classList.add('hidden');
-            document.getElementById('activeJobBox').classList.remove('hidden');
-            listenToActiveJob(currentJobId);
-            startLocationWatch();
-        }
-    });
 </script>
 </body>
 </html>
