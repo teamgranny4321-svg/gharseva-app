@@ -62,6 +62,7 @@
         <button class="tab-btn" id="tabHistory" onclick="switchTab('history')">History</button>
     </div>
 
+    <!-- BOOKING TAB -->
     <div id="bookTab">
         <div id="serviceSelectView">
             <h3>Aapko Kya Seva Chahiye?</h3>
@@ -91,20 +92,21 @@
         </div>
     </div>
 
+    <!-- HISTORY TAB -->
     <div id="historyTab" class="hidden">
         <div id="historyList"></div>
         <div id="historyEmpty" class="empty-state hidden">Abhi koi job history nahi hai.</div>
     </div>
 
 <script>
-    const user = getCurrentUser();
-    if (!user || user.userType !== 'customer') { window.location.href = 'index.html'; }
+let user = null;
 
     let currentJobId = null;
     let jobListener = null;
     let myLocation = null;
     let selectedRating = 0;
 
+    // ---------------- Render Services ----------------
     const grid = document.getElementById('serviceGrid');
     SERVICES.forEach(s => {
         const card = document.createElement('div');
@@ -114,6 +116,7 @@
         grid.appendChild(card);
     });
 
+    // ---------------- Tabs ----------------
     function switchTab(tab) {
         document.getElementById('tabBook').classList.toggle('active', tab === 'book');
         document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
@@ -122,6 +125,7 @@
         if (tab === 'history') loadHistory();
     }
 
+    // ---------------- Request a service ----------------
     async function requestService(service) {
         document.getElementById('statusText').innerText = "Aapki location li ja rahi hai...";
         document.getElementById('serviceSelectView').classList.add('hidden');
@@ -169,6 +173,7 @@
         document.getElementById('statusTitle').classList.remove('hidden');
     }
 
+    // ---------------- Listen for live job updates ----------------
     function listenToJob(jobId) {
         if (jobListener) firebase.database().ref('jobs/' + jobId).off('value', jobListener);
 
@@ -194,9 +199,17 @@
                 document.getElementById('mapBtn').classList.remove('hidden');
             } else if (job.status === "started") {
                 document.getElementById('statusText').innerText = "Kaam Shuru Ho Gaya Hai! 🔧";
+                document.getElementById('workerInfoBox').classList.remove('hidden');
+                document.getElementById('workerName').innerText = job.workerName || '-';
+                document.getElementById('workerPhone').innerText = job.workerPhone || '-';
+                document.getElementById('workerPhone').href = "tel:" + (job.workerPhone || '');
+                document.getElementById('workerRating').innerText = (job.workerRating || 5).toFixed(1);
+                document.getElementById('mapBtn').classList.remove('hidden');
                 document.getElementById('cancelBtn').classList.add('hidden');
                 document.getElementById('otpLabel').innerText = "Kaam poora hone par ye OTP bataayein:";
+                document.getElementById('otpLabel').classList.remove('hidden');
                 document.getElementById('otpBox').innerText = job.otpComplete;
+                document.getElementById('otpBox').classList.remove('hidden');
             } else if (job.status === "completed") {
                 document.getElementById('pulseDot').classList.add('hidden');
                 document.getElementById('statusText').innerText = "Kaam Poora Ho Gaya! 🎉 Thanks.";
@@ -246,6 +259,7 @@
         document.getElementById('serviceSelectView').classList.remove('hidden');
     }
 
+    // ---------------- Rating ----------------
     document.querySelectorAll('#starRow .star').forEach(starEl => {
         starEl.onclick = () => {
             selectedRating = parseInt(starEl.dataset.val);
@@ -277,6 +291,7 @@
         });
     }
 
+    // ---------------- History ----------------
     function loadHistory() {
         const listEl = document.getElementById('historyList');
         const emptyEl = document.getElementById('historyEmpty');
@@ -307,18 +322,27 @@
         });
     }
 
-    firebase.database().ref('jobs').orderByChild('customerUid').equalTo(user.uid).once('value').then(snap => {
-        const jobs = snap.val();
-        if (!jobs) return;
-        const active = Object.values(jobs).find(j => ['searching', 'accepted', 'started'].includes(j.status));
-        if (active) {
-            currentJobId = active.jobId;
-            myLocation = { lat: active.customerLat, lng: active.customerLng };
-            document.getElementById('serviceSelectView').classList.add('hidden');
-            document.getElementById('statusView').classList.remove('hidden');
-            resetStatusView();
-            listenToJob(currentJobId);
+    // ---------------- Resume an in-progress job on page load ----------------
+    restoreSession((restoredUser) => {
+        if (!restoredUser || restoredUser.userType !== 'customer') {
+            window.location.href = 'index.html';
+            return;
         }
+        user = restoredUser;
+
+        firebase.database().ref('jobs').orderByChild('customerUid').equalTo(user.uid).once('value').then(snap => {
+            const jobs = snap.val();
+            if (!jobs) return;
+            const active = Object.values(jobs).find(j => ['searching', 'accepted', 'started'].includes(j.status));
+            if (active) {
+                currentJobId = active.jobId;
+                myLocation = { lat: active.customerLat, lng: active.customerLng };
+                document.getElementById('serviceSelectView').classList.add('hidden');
+                document.getElementById('statusView').classList.remove('hidden');
+                resetStatusView();
+                listenToJob(currentJobId);
+            }
+        });
     });
 </script>
 </body>
