@@ -78,13 +78,10 @@
         <button class="tab-btn" id="tabHistory" onclick="switchTab('history')">History</button>
     </div>
 
-    <!-- WORK TAB -->
     <div id="workTab">
-
-        <!-- Service selection setup (first time) -->
         <div id="setupBox" class="setup-box hidden">
             <h3>Aap Kaunsa Kaam Karte Hain?</h3>
-            <p style="font-size:13px; color:#777;">Ek ya zyada select karein (jis kaam me notification chahiye)</p>
+            <p style="font-size:13px; color:#777;">Ek ya zyada select karein</p>
             <div class="service-grid" id="setupGrid"></div>
             <button class="btn btn-accept" style="width:100%; margin-top:14px;" onclick="saveServices()">Save Karein</button>
         </div>
@@ -118,7 +115,7 @@
                     <p><b>Customer:</b> <span id="custName"></span></p>
                     <p><b>Mobile:</b> <a id="custPhone" href="#"></a></p>
                     <p><b>Distance:</b> <span id="custDistance"></span> km</p>
-                    <button class="btn btn-accept" style="margin-top:8px;" onclick="openCustomerMap()">📍 Map Par Dekhein</button>
+                    <button class="btn btn-accept" style="margin-top:8px;" id="workerMapBtn" onclick="openCustomerMap()">📍 Map Par Dekhein</button>
                 </div>
                 <div id="otpSection">
                     <p id="otpInstructions" style="font-weight:bold;"></p>
@@ -129,14 +126,14 @@
         </div>
     </div>
 
-    <!-- HISTORY TAB -->
     <div id="historyTab" class="hidden">
         <div id="historyList"></div>
         <div id="historyEmpty" class="empty-state hidden">Abhi koi job history nahi hai.</div>
     </div>
 
 <script>
-let user = null;
+    const user = getCurrentUser();
+    if (!user || user.userType !== 'worker') { window.location.href = 'index.html'; }
 
     let myServices = [];
     let isOnline = false;
@@ -146,51 +143,25 @@ let user = null;
     let jobListener = null;
     let allJobsListener = null;
     let step = "arrival";
+    let notifiedJobs = []; // For tracking notification sounds
 
-    // ---------------- Load worker profile (after session restore) ----------------
-    restoreSession((restoredUser) => {
-        if (!restoredUser || restoredUser.userType !== 'worker') {
-            window.location.href = 'index.html';
-            return;
+    firebase.database().ref('users/' + user.uid).once('value').then(snap => {
+        const data = snap.val();
+        if (data) {
+            document.getElementById('statRating').innerText = (data.rating || 5).toFixed(1);
+            document.getElementById('statJobs').innerText = data.jobsCompleted || 0;
+            if (data.rating && data.rating <= 2.5 && data.ratingCount >= 3) {
+                document.getElementById('warningAlert').style.display = 'block';
+            }
+            myServices = data.services || [];
         }
-        user = restoredUser;
-
-        firebase.database().ref('users/' + user.uid).once('value').then(snap => {
-            const data = snap.val();
-            if (data) {
-                document.getElementById('statRating').innerText = (data.rating || 5).toFixed(1);
-                document.getElementById('statJobs').innerText = data.jobsCompleted || 0;
-                if (data.rating && data.rating <= 2.5 && data.ratingCount >= 3) {
-                    document.getElementById('warningAlert').style.display = 'block';
-                }
-                myServices = data.services || [];
-            }
-            if (myServices.length === 0) {
-                showSetup();
-            } else {
-                document.getElementById('mainWorkView').classList.remove('hidden');
-            }
-
-            // Resume active job on page reload (was previously a separate block at file end)
-            firebase.database().ref('jobs').orderByChild('workerUid').equalTo(user.uid).once('value').then(snap2 => {
-                const jobs = snap2.val();
-                if (!jobs) return;
-                const active = Object.values(jobs).find(j => ['accepted', 'started'].includes(j.status));
-                if (active && myServices.length > 0) {
-                    currentJobId = active.jobId;
-                    step = active.status === 'started' ? 'complete' : 'arrival';
-                    myLocation = { lat: active.workerLat, lng: active.workerLng };
-                    document.getElementById('mainWorkView').classList.remove('hidden');
-                    document.getElementById('noActiveJob').classList.add('hidden');
-                    document.getElementById('activeJobBox').classList.remove('hidden');
-                    listenToActiveJob(currentJobId);
-                    startLocationWatch();
-                }
-            });
-        });
+        if (myServices.length === 0) {
+            showSetup();
+        } else {
+            document.getElementById('mainWorkView').classList.remove('hidden');
+        }
     });
 
-    // ---------------- Setup / Edit services ----------------
     function showSetup() {
         document.getElementById('setupBox').classList.remove('hidden');
         document.getElementById('mainWorkView').classList.add('hidden');
@@ -215,7 +186,6 @@ let user = null;
         document.getElementById('mainWorkView').classList.remove('hidden');
     }
 
-    // ---------------- Online/Offline toggle ----------------
     async function toggleOnline() {
         const toggle = document.getElementById('onlineToggle');
         if (toggle.checked) {
@@ -249,7 +219,6 @@ let user = null;
         locationWatchId = watchMyLocation((lat, lng) => {
             myLocation = { lat, lng };
             firebase.database().ref('users/' + user.uid).update({ lat, lng, lastSeen: new Date().toISOString() });
-            // If currently on an active job, also update job's workerLat/Lng for customer tracking
             if (currentJobId) {
                 firebase.database().ref('jobs/' + currentJobId).update({ workerLat: lat, workerLng: lng });
             }
@@ -260,40 +229,38 @@ let user = null;
         locationWatchId = null;
     }
 
-    // ---------------- Listen for nearby matching jobs (status = searching) ----------------
-    let lastSeenJobIds = new Set();
-
     function startListeningForJobs() {
         allJobsListener = firebase.database().ref('jobs').orderByChild('status').equalTo('searching');
         allJobsListener.on('value', (snapshot) => {
-            if (currentJobId) return; // already on a job, ignore new alerts
+            if (currentJobId) return;
             const jobs = snapshot.val();
             const listEl = document.getElementById('newJobsList');
             listEl.innerHTML = '';
-            if (!jobs) { document.getElementById('waitingMsg').classList.remove('hidden'); lastSeenJobIds.clear(); return; }
+            if (!jobs) { document.getElementById('waitingMsg').classList.remove('hidden'); return; }
 
             const matchingJobs = Object.values(jobs).filter(job => {
                 if (!myServices.includes(job.serviceId)) return false;
                 const dist = getDistanceKm(myLocation.lat, myLocation.lng, job.customerLat, job.customerLng);
-                return dist <= 4; // 4km range filter
+                return dist <= 4;
             });
 
             if (matchingJobs.length === 0) {
                 document.getElementById('waitingMsg').classList.remove('hidden');
-                lastSeenJobIds.clear();
                 return;
             }
             document.getElementById('waitingMsg').classList.add('hidden');
 
-            // Alert (sound + vibration) only when a genuinely NEW job shows up
-            const currentIds = matchingJobs.map(j => j.jobId);
-            const hasNewJob = currentIds.some(id => !lastSeenJobIds.has(id));
-            if (hasNewJob) {
-                playAlertSound();
-            }
-            lastSeenJobIds = new Set(currentIds);
-
             matchingJobs.forEach(job => {
+                // Fix 3: Naye job par Sound aur Vibration alert
+                if (!notifiedJobs.includes(job.jobId)) {
+                    notifiedJobs.push(job.jobId);
+                    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                    try {
+                        let audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+                        audio.play();
+                    } catch(e) { console.log("Sound blocked by web browser configuration"); }
+                }
+
                 const dist = getDistanceKm(myLocation.lat, myLocation.lng, job.customerLat, job.customerLng).toFixed(1);
                 const card = document.createElement('div');
                 card.className = 'job-card';
@@ -313,17 +280,14 @@ let user = null;
     function stopListeningForJobs() {
         if (allJobsListener) allJobsListener.off('value');
         allJobsListener = null;
-        lastSeenJobIds.clear();
     }
 
-    // ---------------- Accept a job ----------------
     function acceptJob(jobId) {
         const jobRef = firebase.database().ref('jobs/' + jobId);
-        // Transaction-like guard: only accept if still searching (avoid 2 workers accepting same job)
         jobRef.once('value').then(snap => {
             const job = snap.val();
             if (!job || job.status !== 'searching') {
-                alert("Ye job ab available nahi hai (kisi aur worker ne le li).");
+                alert("Ye job ab available nahi hai.");
                 return;
             }
             jobRef.update({
@@ -346,7 +310,6 @@ let user = null;
         });
     }
 
-    // ---------------- Listen to active job for cancellation etc ----------------
     function listenToActiveJob(jobId) {
         if (jobListener) firebase.database().ref('jobs/' + jobId).off('value', jobListener);
         jobListener = (snapshot) => {
@@ -362,8 +325,12 @@ let user = null;
 
             if (job.status === "accepted") {
                 document.getElementById('otpInstructions').innerText = "Pahuchne par Customer se Arrival OTP lein:";
-            } else if (job.status === "started") {
+                document.getElementById('workerMapBtn').classList.remove('hidden'); // Map visible when accepted
+            } 
+            // Fix 2 Clarification: Started status par Worker side map explicitly hidden
+            else if (job.status === "started") {
                 document.getElementById('otpInstructions').innerText = "Kaam poora hone par Customer se Completion OTP lein:";
+                document.getElementById('workerMapBtn').classList.add('hidden'); // Hide Map on dashboard
             } else if (job.status === "cancelled") {
                 alert("Customer ne job cancel kar di!");
                 endActiveJob();
@@ -375,7 +342,7 @@ let user = null;
     function openCustomerMap() {
         firebase.database().ref('jobs/' + currentJobId).once('value').then(snap => {
             const job = snap.val();
-            window.open(`https://www.google.com/maps?q=${job.customerLat},${job.customerLng}`, '_blank');
+            window.open(`https://www.google.com/maps/search/?api=1&query=${job.customerLat},${job.customerLng}`, '_blank');
         });
     }
 
@@ -387,6 +354,7 @@ let user = null;
                 firebase.database().ref('jobs/' + currentJobId).update({ status: "started" });
                 step = "complete";
                 document.getElementById('otpInput').value = "";
+                document.getElementById('workerMapBtn').classList.add('hidden'); // Fix 2 Clarification: Immediate Hide
                 alert("Arrival OTP Verified! Kaam shuru karein.");
             } else if (step === "complete" && entered == job.otpComplete) {
                 firebase.database().ref('jobs/' + currentJobId).update({
@@ -411,7 +379,6 @@ let user = null;
         document.getElementById('noActiveJob').classList.remove('hidden');
         document.getElementById('otpInput').value = "";
         if (isOnline) document.getElementById('waitingMsg').classList.remove('hidden');
-        // refresh rating/jobs stat display
         firebase.database().ref('users/' + user.uid).once('value').then(snap => {
             const data = snap.val();
             if (data) {
@@ -421,7 +388,6 @@ let user = null;
         });
     }
 
-    // ---------------- Tabs ----------------
     function switchTab(tab) {
         document.getElementById('tabWork').classList.toggle('active', tab === 'work');
         document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
@@ -452,13 +418,29 @@ let user = null;
                 const badge = job.status === 'completed' ? '<span class="badge badge-completed">Completed</span>' : '<span class="badge badge-cancelled">Cancelled</span>';
                 div.innerHTML = `
                     <div class="h-top"><span>${job.serviceEmoji || ''} ${job.serviceName}</span>${badge}</div>
-                    <div class="h-meta">Customer: ${job.customerName} | ${new Date(job.createdAt).toLocaleDateString()} ${new Date(job.createdAt).toLocaleTimeString()}</div>
+                    <div class="h-meta">Customer: ${job.customerName} | ${new Date(job.createdAt).toLocaleDateString()}</div>
                     ${job.rating ? `<div class="h-meta">Customer Rating: ${'⭐'.repeat(job.rating)}</div>` : ''}
                 `;
                 listEl.appendChild(div);
             });
         });
     }
+
+    firebase.database().ref('jobs').orderByChild('workerUid').equalTo(user.uid).once('value').then(snap => {
+        const jobs = snap.val();
+        if (!jobs) return;
+        const active = Object.values(jobs).find(j => ['accepted', 'started'].includes(j.status));
+        if (active && myServices.length > 0) {
+            currentJobId = active.jobId;
+            step = active.status === 'started' ? 'complete' : 'arrival';
+            myLocation = { lat: active.workerLat, lng: active.workerLng };
+            document.getElementById('mainWorkView').classList.remove('hidden');
+            document.getElementById('noActiveJob').classList.add('hidden');
+            document.getElementById('activeJobBox').classList.remove('hidden');
+            listenToActiveJob(currentJobId);
+            startLocationWatch();
+        }
+    });
 </script>
 </body>
 </html>
