@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GharSeva - Customer</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f4f6f9; padding: 16px; margin: 0; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .topbar h2 { margin: 0; font-size: 20px; }
+        .logout-link { color: #d9534f; font-size: 13px; cursor: pointer; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .tab-btn { flex: 1; padding: 10px; background: white; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; font-weight: bold; color: #555; }
+        .tab-btn.active { background: #007bff; color: white; border-color: #007bff; }
+
+        .service-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .service-card { background: white; padding: 14px 10px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); text-align: center; cursor: pointer; border: 2px solid transparent; }
+        .service-card:active { border-color: #007bff; }
+        .service-card .emoji { font-size: 28px; }
+        .service-card .name { font-weight: bold; font-size: 13px; margin: 6px 0 2px; }
+        .service-card .desc { font-size: 11px; color: #888; }
+
+        .status-box { background: white; padding: 18px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); }
+        .status-box h3 { margin-top: 0; }
+        .otp-display { font-weight: bold; color: #ff5722; font-size: 24px; text-align: center; background: #fff3e0; padding: 10px; border-radius: 8px; margin: 10px 0; }
+        .worker-info { background: #f0f8ff; padding: 12px; border-radius: 8px; margin: 10px 0; font-size: 14px; }
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 8px; font-size: 14px; }
+        .btn-cancel { background: #d9534f; color: white; }
+        .btn-track { background: #28a745; color: white; }
+        .btn-rate { background: #ffc107; color: #333; }
+        .pulse-dot { display:inline-block; width:10px; height:10px; background:#28a745; border-radius:50%; margin-right:6px; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+
+        .history-card { background: white; padding: 14px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); margin-bottom: 10px; }
+        .history-card .h-top { display: flex; justify-content: space-between; font-weight: bold; }
+        .history-card .h-meta { font-size: 12px; color: #888; margin-top: 4px; }
+        .badge { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+        .badge-completed { background: #d4edda; color: #155724; }
+        .badge-cancelled { background: #f8d7da; color: #721c24; }
+
+        .empty-state { text-align: center; color: #999; padding: 40px 10px; }
+        .hidden { display: none !important; }
+
+        .star-row { display: flex; justify-content: center; gap: 6px; font-size: 28px; margin: 10px 0; }
+        .star { cursor: pointer; color: #ddd; }
+        .star.filled { color: #ffc107; }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="shared.js"></script>
+</head>
+<body>
+
+    <div class="topbar">
+        <h2>🏠 GharSeva</h2>
+        <span class="logout-link" onclick="logoutUser()">Logout</span>
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" id="tabBook" onclick="switchTab('book')">Book Service</button>
+        <button class="tab-btn" id="tabHistory" onclick="switchTab('history')">History</button>
+    </div>
+
+    <div id="bookTab">
+        <div id="serviceSelectView">
+            <h3>Aapko Kya Seva Chahiye?</h3>
+            <div class="service-grid" id="serviceGrid"></div>
+        </div>
+
+        <div id="statusView" class="status-box hidden">
+            <h3 id="statusTitle"><span class="pulse-dot" id="pulseDot"></span><span id="statusText">Searching nearby workers (4km)...</span></h3>
+            <div id="workerInfoBox" class="worker-info hidden">
+                <p><b>Worker:</b> <span id="workerName"></span></p>
+                <p><b>Mobile:</b> <a id="workerPhone" href="#"></a></p>
+                <p><b>Rating:</b> <span id="workerRating"></span> ⭐</p>
+                <p><b>Distance:</b> <span id="workerDistance"></span> km away</p>
+            </div>
+            <p id="otpLabel" class="hidden" style="margin-bottom:0; font-size:13px; color:#666;">Worker ko ye OTP bataayein:</p>
+            <div id="otpBox" class="otp-display hidden"></div>
+            <button class="btn btn-track hidden" id="mapBtn" onclick="openMap()">📍 Worker Ki Location Map Par Dekhein</button>
+            <button class="btn btn-cancel" id="cancelBtn" onclick="cancelJob()">Cancel Job</button>
+
+            <div id="ratingSection" class="hidden">
+                <p style="text-align:center; font-weight:bold;">Kaam kaisa raha? Rating dein:</p>
+                <div class="star-row" id="starRow">
+                    <span class="star" data-val="1">★</span><span class="star" data-val="2">★</span><span class="star" data-val="3">★</span><span class="star" data-val="4">★</span><span class="star" data-val="5">★</span>
+                </div>
+                <button class="btn btn-rate" onclick="submitRating()">Submit Rating</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="historyTab" class="hidden">
+        <div id="historyList"></div>
+        <div id="historyEmpty" class="empty-state hidden">Abhi koi job history nahi hai.</div>
+    </div>
+
+<script>
+    const user = getCurrentUser();
+    if (!user || user.userType !== 'customer') { window.location.href = 'index.html'; }
+
+    let currentJobId = null;
+    let jobListener = null;
+    let myLocation = null;
+    let selectedRating = 0;
+
+    const grid = document.getElementById('serviceGrid');
+    SERVICES.forEach(s => {
+        const card = document.createElement('div');
+        card.className = 'service-card';
+        card.innerHTML = `<div class="emoji">${s.emoji}</div><div class="name">${s.name}</div><div class="desc">${s.desc}</div>`;
+        card.onclick = () => requestService(s);
+        grid.appendChild(card);
+    });
+
+    function switchTab(tab) {
+        document.getElementById('tabBook').classList.toggle('active', tab === 'book');
+        document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
+        document.getElementById('bookTab').classList.toggle('hidden', tab !== 'book');
+        document.getElementById('historyTab').classList.toggle('hidden', tab !== 'history');
+        if (tab === 'history') loadHistory();
+    }
+
+    async function requestService(service) {
+        document.getElementById('statusText').innerText = "Aapki location li ja rahi hai...";
+        document.getElementById('serviceSelectView').classList.add('hidden');
+        document.getElementById('statusView').classList.remove('hidden');
+        resetStatusView();
+
+        try {
+            myLocation = await getMyLocation();
+        } catch (e) {
+            alert("Location access zaroori hai service request karne ke liye: " + e);
+            cancelAndReset();
+            return;
+        }
+
+        currentJobId = generateJobId();
+        document.getElementById('statusText').innerText = "Searching nearby workers (4km)...";
+
+        firebase.database().ref('jobs/' + currentJobId).set({
+            jobId: currentJobId,
+            serviceId: service.id,
+            serviceName: service.name,
+            serviceEmoji: service.emoji,
+            status: "searching",
+            customerUid: user.uid,
+            customerName: user.name,
+            customerPhone: user.phone,
+            customerLat: myLocation.lat,
+            customerLng: myLocation.lng,
+            otpArrival: generateOTP(),
+            otpComplete: generateOTP(),
+            createdAt: new Date().toISOString()
+        });
+
+        listenToJob(currentJobId);
+    }
+
+    function resetStatusView() {
+        document.getElementById('pulseDot').classList.remove('hidden');
+        document.getElementById('workerInfoBox').classList.add('hidden');
+        document.getElementById('otpLabel').classList.add('hidden');
+        document.getElementById('otpBox').classList.add('hidden');
+        document.getElementById('mapBtn').classList.add('hidden');
+        document.getElementById('cancelBtn').classList.remove('hidden');
+        document.getElementById('ratingSection').classList.add('hidden');
+        document.getElementById('statusTitle').classList.remove('hidden');
+    }
+
+    function listenToJob(jobId) {
+        if (jobListener) firebase.database().ref('jobs/' + jobId).off('value', jobListener);
+
+        jobListener = (snapshot) => {
+            const job = snapshot.val();
+            if (!job) return;
+
+            if (job.status === "accepted") {
+                document.getElementById('statusText').innerText = "Worker Mil Gaya! Raste Me Hai 🛵";
+                document.getElementById('workerInfoBox').classList.remove('hidden');
+                document.getElementById('workerName').innerText = job.workerName || '-';
+                document.getElementById('workerPhone').innerText = job.workerPhone || '-';
+                document.getElementById('workerPhone').href = "tel:" + (job.workerPhone || '');
+                document.getElementById('workerRating').innerText = (job.workerRating || 5).toFixed(1);
+                if (job.workerLat && job.customerLat) {
+                    const d = getDistanceKm(job.customerLat, job.customerLng, job.workerLat, job.workerLng);
+                    document.getElementById('workerDistance').innerText = d.toFixed(1);
+                }
+                document.getElementById('otpLabel').innerText = "Worker ko ye Arrival OTP bataayein:";
+                document.getElementById('otpLabel').classList.remove('hidden');
+                document.getElementById('otpBox').innerText = job.otpArrival;
+                document.getElementById('otpBox').classList.remove('hidden');
+                document.getElementById('mapBtn').classList.remove('hidden');
+            } else if (job.status === "started") {
+                document.getElementById('statusText').innerText = "Kaam Shuru Ho Gaya Hai! 🔧";
+                document.getElementById('cancelBtn').classList.add('hidden');
+                document.getElementById('otpLabel').innerText = "Kaam poora hone par ye OTP bataayein:";
+                document.getElementById('otpBox').innerText = job.otpComplete;
+            } else if (job.status === "completed") {
+                document.getElementById('pulseDot').classList.add('hidden');
+                document.getElementById('statusText').innerText = "Kaam Poora Ho Gaya! 🎉 Thanks.";
+                document.getElementById('otpLabel').classList.add('hidden');
+                document.getElementById('otpBox').classList.add('hidden');
+                document.getElementById('mapBtn').classList.add('hidden');
+                document.getElementById('cancelBtn').classList.add('hidden');
+                if (!job.customerRated) {
+                    document.getElementById('ratingSection').classList.remove('hidden');
+                } else {
+                    setTimeout(backToServiceList, 2500);
+                }
+            } else if (job.status === "cancelled_by_worker") {
+                alert("Worker ne job cancel kar di. Dobara try karein.");
+                backToServiceList();
+            }
+        };
+        firebase.database().ref('jobs/' + jobId).on('value', jobListener);
+    }
+
+    function openMap() {
+        firebase.database().ref('jobs/' + currentJobId).once('value').then(snap => {
+            const job = snap.val();
+            if (job.workerLat) {
+                window.open(`https://www.google.com/maps?q=${job.workerLat},${job.workerLng}`, '_blank');
+            } else {
+                alert("Worker ki location abhi available nahi hai.");
+            }
+        });
+    }
+
+    function cancelJob() {
+        if (!confirm("Pakka job cancel karni hai?")) return;
+        firebase.database().ref('jobs/' + currentJobId).update({ status: "cancelled", cancelledBy: "customer" });
+        alert("Job Cancel Kar Di Gayi Hai.");
+        backToServiceList();
+    }
+
+    function cancelAndReset() {
+        backToServiceList();
+    }
+
+    function backToServiceList() {
+        if (jobListener && currentJobId) firebase.database().ref('jobs/' + currentJobId).off('value', jobListener);
+        currentJobId = null;
+        document.getElementById('statusView').classList.add('hidden');
+        document.getElementById('serviceSelectView').classList.remove('hidden');
+    }
+
+    document.querySelectorAll('#starRow .star').forEach(starEl => {
+        starEl.onclick = () => {
+            selectedRating = parseInt(starEl.dataset.val);
+            document.querySelectorAll('#starRow .star').forEach(s => {
+                s.classList.toggle('filled', parseInt(s.dataset.val) <= selectedRating);
+            });
+        };
+    });
+
+    function submitRating() {
+        if (selectedRating === 0) { alert("Pehle stars select karein"); return; }
+        firebase.database().ref('jobs/' + currentJobId).once('value').then(snap => {
+            const job = snap.val();
+            firebase.database().ref('jobs/' + currentJobId).update({ customerRated: true, rating: selectedRating });
+
+            if (job.workerUid) {
+                const workerRef = firebase.database().ref('users/' + job.workerUid);
+                workerRef.once('value').then(uSnap => {
+                    const u = uSnap.val();
+                    const oldCount = u.ratingCount || 0;
+                    const oldRating = u.rating || 5;
+                    const newCount = oldCount + 1;
+                    const newRating = ((oldRating * oldCount) + selectedRating) / newCount;
+                    workerRef.update({ rating: newRating, ratingCount: newCount });
+                });
+            }
+            alert("Rating Submit Ho Gayi! Dhanyawaad.");
+            backToServiceList();
+        });
+    }
+
+    function loadHistory() {
+        const listEl = document.getElementById('historyList');
+        const emptyEl = document.getElementById('historyEmpty');
+        listEl.innerHTML = '<p style="text-align:center;color:#999;">Loading...</p>';
+
+        firebase.database().ref('jobs').orderByChild('customerUid').equalTo(user.uid).once('value').then(snap => {
+            const jobs = snap.val();
+            listEl.innerHTML = '';
+            if (!jobs) { emptyEl.classList.remove('hidden'); return; }
+            emptyEl.classList.add('hidden');
+
+            const jobArr = Object.values(jobs).filter(j => j.status === 'completed' || j.status === 'cancelled');
+            jobArr.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+            if (jobArr.length === 0) { emptyEl.classList.remove('hidden'); return; }
+
+            jobArr.forEach(job => {
+                const div = document.createElement('div');
+                div.className = 'history-card';
+                const badge = job.status === 'completed' ? '<span class="badge badge-completed">Completed</span>' : '<span class="badge badge-cancelled">Cancelled</span>';
+                div.innerHTML = `
+                    <div class="h-top"><span>${job.serviceEmoji || ''} ${job.serviceName}</span>${badge}</div>
+                    <div class="h-meta">Worker: ${job.workerName || 'N/A'} | ${new Date(job.createdAt).toLocaleDateString()} ${new Date(job.createdAt).toLocaleTimeString()}</div>
+                    ${job.rating ? `<div class="h-meta">Aapki Rating: ${'⭐'.repeat(job.rating)}</div>` : ''}
+                `;
+                listEl.appendChild(div);
+            });
+        });
+    }
+
+    firebase.database().ref('jobs').orderByChild('customerUid').equalTo(user.uid).once('value').then(snap => {
+        const jobs = snap.val();
+        if (!jobs) return;
+        const active = Object.values(jobs).find(j => ['searching', 'accepted', 'started'].includes(j.status));
+        if (active) {
+            currentJobId = active.jobId;
+            myLocation = { lat: active.customerLat, lng: active.customerLng };
+            document.getElementById('serviceSelectView').classList.add('hidden');
+            document.getElementById('statusView').classList.remove('hidden');
+            resetStatusView();
+            listenToJob(currentJobId);
+        }
+    });
+</script>
+</body>
+</html>
