@@ -62,19 +62,17 @@ function setCurrentUser(uid, email, userType, name, phone) {
     localStorage.setItem('gharseva_user', JSON.stringify({ uid, email, userType, name, phone }));
 }
 
+// FIXED LOGOUT: Pehle localStorage clear hoga, phir firebase signOut, phir redirect
 function logoutUser() {
-    if (typeof firebase !== 'undefined' && firebase.auth()) {
+    localStorage.removeItem('gharseva_user'); 
+    if (typeof firebase !== 'undefined' && firebase.auth && firebase.auth()) {
         firebase.auth().signOut().then(() => {
-            localStorage.removeItem('gharseva_user');
-            window.location.href = 'index.html';
-        }).catch((error) => {
-            console.error("Logout Error:", error);
-            localStorage.removeItem('gharseva_user');
-            window.location.href = 'index.html';
+            window.location.replace('index.html');
+        }).catch((err) => {
+            window.location.replace('index.html');
         });
     } else {
-        localStorage.removeItem('gharseva_user');
-        window.location.href = 'index.html';
+        window.location.replace('index.html');
     }
 }
 
