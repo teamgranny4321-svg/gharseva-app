@@ -9,7 +9,7 @@
         body { font-family: Arial, sans-serif; background: #f4f6f9; padding: 16px; margin: 0; }
         .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .topbar h2 { margin: 0; font-size: 20px; }
-        .logout-link { color: #d9534f; font-size: 13px; cursor: pointer; }
+        .logout-link { color: #d9534f; font-size: 13px; cursor: pointer; font-weight: bold; }
         .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
         .tab-btn { flex: 1; padding: 10px; background: white; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; font-weight: bold; color: #555; }
         .tab-btn.active { background: #007bff; color: white; border-color: #007bff; }
@@ -36,8 +36,8 @@
         .job-meta { font-size: 14px; color: #555; margin: 6px 0; }
         .btn { padding: 12px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
         .btn-accept { background: #28a745; color: white; width: 100%; }
+        .btn-reject { background: #fff; color: #d9534f; border: 1px solid #d9534f; flex: 1; }
         .btn-row { display: flex; gap: 8px; }
-        .btn-reject { background: #eee; color: #555; flex: 1; }
         .btn-accept-small { background: #28a745; color: white; flex: 2; }
 
         .active-job-box { background: white; padding: 18px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); }
@@ -60,7 +60,9 @@
         .stat-box .num { font-size:20px; font-weight:bold; color:#007bff; }
         .stat-box .label { font-size:11px; color:#888; }
     </style>
+    <!-- LOGOUT FIX: Added Firebase Auth -->
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
     <script src="shared.js"></script>
 </head>
@@ -122,6 +124,8 @@
                     <input type="number" id="otpInput" class="otp-input" placeholder="OTP Daalein">
                     <button class="btn btn-verify" style="width:100%;" onclick="verifyOTP()">Verify OTP</button>
                 </div>
+                <!-- Dispute Cancel Button for Worker -->
+                <button class="btn btn-reject hidden" id="workerCancelBtn" style="width:100%; margin-top:12px;" onclick="workerCancelJob()">Cancel Job</button>
             </div>
         </div>
     </div>
@@ -143,7 +147,8 @@
     let jobListener = null;
     let allJobsListener = null;
     let step = "arrival";
-    let notifiedJobs = []; // For tracking notification sounds
+    let notifiedJobs = []; 
+    let disputeWorkerTimeout = null;
 
     firebase.database().ref('users/' + user.uid).once('value').then(snap => {
         const data = snap.val();
@@ -251,14 +256,13 @@
             document.getElementById('waitingMsg').classList.add('hidden');
 
             matchingJobs.forEach(job => {
-                // Fix 3: Naye job par Sound aur Vibration alert
                 if (!notifiedJobs.includes(job.jobId)) {
                     notifiedJobs.push(job.jobId);
                     if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
                     try {
                         let audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
                         audio.play();
-                    } catch(e) { console.log("Sound blocked by web browser configuration"); }
+                    } catch(e) {}
                 }
 
                 const dist = getDistanceKm(myLocation.lat, myLocation.lng, job.customerLat, job.customerLng).toFixed(1);
@@ -325,14 +329,35 @@
 
             if (job.status === "accepted") {
                 document.getElementById('otpInstructions').innerText = "Pahuchne par Customer se Arrival OTP lein:";
-                document.getElementById('workerMapBtn').classList.remove('hidden'); // Map visible when accepted
+                document.getElementById('workerMapBtn').classList.remove('hidden');
+                document.getElementById('workerCancelBtn').classList.remove('hidden');
+                document.getElementById('workerCancelBtn').innerText = "Cancel Job";
             } 
-            // Fix 2 Clarification: Started status par Worker side map explicitly hidden
             else if (job.status === "started") {
                 document.getElementById('otpInstructions').innerText = "Kaam poora hone par Customer se Completion OTP lein:";
-                document.getElementById('workerMapBtn').classList.add('hidden'); // Hide Map on dashboard
+                document.getElementById('workerMapBtn').classList.add('hidden'); 
+                document.getElementById('workerCancelBtn').classList.add('hidden'); // Initially hide
+                
+                // DISPUTE LOGIC FOR WORKER
+                if (job.startedAt) {
+                    const elapsed = Date.now() - job.startedAt;
+                    const waitTime = 30 * 60 * 1000;
+                    if (elapsed >= waitTime) {
+                        document.getElementById('workerCancelBtn').classList.remove('hidden');
+                        document.getElementById('workerCancelBtn').innerText = "Cancel Job (Dispute)";
+                    } else {
+                        if(disputeWorkerTimeout) clearTimeout(disputeWorkerTimeout);
+                        disputeWorkerTimeout = setTimeout(() => {
+                            const btn = document.getElementById('workerCancelBtn');
+                            if (btn && currentJobId === job.jobId && step === 'complete') {
+                                btn.classList.remove('hidden');
+                                btn.innerText = "Cancel Job (Dispute)";
+                            }
+                        }, waitTime - elapsed);
+                    }
+                }
             } else if (job.status === "cancelled") {
-                alert("Customer ne job cancel kar di!");
+                alert("Ye Job Cancel ho chuki hai!");
                 endActiveJob();
             }
         };
@@ -351,10 +376,14 @@
         firebase.database().ref('jobs/' + currentJobId).once('value').then(snap => {
             const job = snap.val();
             if (step === "arrival" && entered == job.otpArrival) {
-                firebase.database().ref('jobs/' + currentJobId).update({ status: "started" });
+                // SAVING startedAt TIMESTAMP FOR DISPUTE TIMER
+                firebase.database().ref('jobs/' + currentJobId).update({ 
+                    status: "started",
+                    startedAt: Date.now()
+                });
                 step = "complete";
                 document.getElementById('otpInput').value = "";
-                document.getElementById('workerMapBtn').classList.add('hidden'); // Fix 2 Clarification: Immediate Hide
+                document.getElementById('workerMapBtn').classList.add('hidden'); 
                 alert("Arrival OTP Verified! Kaam shuru karein.");
             } else if (step === "complete" && entered == job.otpComplete) {
                 firebase.database().ref('jobs/' + currentJobId).update({
@@ -372,9 +401,16 @@
         });
     }
 
+    function workerCancelJob() {
+        if(!confirm("Pakka job cancel karni hai?")) return;
+        firebase.database().ref('jobs/' + currentJobId).update({ status: "cancelled", cancelledBy: "worker" });
+        endActiveJob();
+    }
+
     function endActiveJob() {
         if (jobListener && currentJobId) firebase.database().ref('jobs/' + currentJobId).off('value', jobListener);
         currentJobId = null;
+        if(disputeWorkerTimeout) clearTimeout(disputeWorkerTimeout);
         document.getElementById('activeJobBox').classList.add('hidden');
         document.getElementById('noActiveJob').classList.remove('hidden');
         document.getElementById('otpInput').value = "";
