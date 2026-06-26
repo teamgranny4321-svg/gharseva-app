@@ -15,7 +15,16 @@
         button:disabled { background: #aaa; }
         .toggle { margin-top: 15px; font-size: 14px; color: #007bff; cursor: pointer; text-decoration: underline; }
         .error { color: #d9534f; font-size: 13px; margin-top: 8px; min-height: 16px; }
+        .success { color: #28a745; font-size: 13px; margin-top: 8px; min-height: 16px; }
         .extra-field { display: none; }
+        .divider { display: flex; align-items: center; margin: 18px 0; color: #aaa; font-size: 12px; }
+        .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #ddd; }
+        .divider span { padding: 0 10px; }
+        .google-btn { background: white; color: #444; border: 1px solid #ddd; display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 0; }
+        .google-btn img { width: 18px; height: 18px; }
+        .verify-box { background: #fff8e1; border: 1px solid #ffe082; border-radius: 8px; padding: 14px; margin-top: 12px; font-size: 13px; color: #795548; text-align: left; }
+        .resend-link { color: #007bff; cursor: pointer; text-decoration: underline; font-weight: bold; }
+        .hidden { display: none !important; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
@@ -28,6 +37,13 @@
     <h2>🏠 GharSeva</h2>
     <p class="subtitle" id="modeText">Account banayein ya login karein</p>
 
+    <button class="google-btn" onclick="googleSignIn()">
+        <img src="https://www.gstatic.com/images/branding/product/1x/gsa_512dp.png" alt="Google">
+        Google Se Continue Karein
+    </button>
+
+    <div class="divider"><span>YA</span></div>
+
     <input type="text" id="name" placeholder="Pura Naam" class="extra-field">
     <input type="tel" id="phone" placeholder="Mobile Number (10 digit)" class="extra-field">
     <input type="email" id="email" placeholder="Email Address">
@@ -39,11 +55,20 @@
 
     <button id="submitBtn" onclick="handleSubmit()">Sign Up</button>
     <p class="error" id="errorMsg"></p>
+    <p class="success" id="successMsg"></p>
+
+    <div class="verify-box hidden" id="verifyBox">
+        📩 Humne aapke email par ek verification link bheja hai. Apna inbox check karein aur link par click karein, phir yahan wapas aakar <b>"Login"</b> karein.
+        <br><br>
+        Email nahi mila? <span class="resend-link" onclick="resendVerification()">Dobara bhejein</span>
+    </div>
+
     <p class="toggle" id="toggleMode" onclick="toggleMode()">Pehle se account hai? Login karein</p>
 </div>
 
 <script>
     let isSignup = true;
+    let pendingUser = null;
 
     function toggleMode() {
         isSignup = !isSignup;
@@ -52,15 +77,71 @@
         document.getElementById('toggleMode').innerText = isSignup ? 'Pehle se account hai? Login karein' : 'Naya account banayein? Sign Up karein';
         document.querySelectorAll('.extra-field').forEach(el => el.style.display = isSignup ? 'block' : 'none');
         document.getElementById('errorMsg').innerText = '';
+        document.getElementById('successMsg').innerText = '';
+        document.getElementById('verifyBox').classList.add('hidden');
     }
     toggleMode(); toggleMode();
+
+    function googleSignIn() {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        const errorEl = document.getElementById('errorMsg');
+        errorEl.innerText = '';
+
+        firebase.auth().signInWithPopup(provider)
+            .then((result) => {
+                const user = result.user;
+                firebase.database().ref('users/' + user.uid).once('value').then((snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        setCurrentUser(user.uid, data.email, data.userType, data.name, data.phone);
+                        redirectUser(data.userType);
+                    } else {
+                        pendingUser = user;
+                        askGoogleUserDetails(user);
+                    }
+                });
+            })
+            .catch((error) => {
+                if (error.code === 'auth/popup-closed-by-user') return;
+                errorEl.innerText = friendlyError(error);
+            });
+    }
+
+    function askGoogleUserDetails(user) {
+        const phone = prompt("Aapka 10-digit Mobile Number daalein (customer/worker ko aapse contact karne ke liye):");
+        if (!phone || phone.length !== 10 || isNaN(phone)) {
+            document.getElementById('errorMsg').innerText = "Sahi 10-digit mobile number zaroori hai.";
+            return;
+        }
+        const wantsWorker = confirm("Kya aap Worker (kaam chahiye) ban rahe hain?\n\nOK = Worker\nCancel = Customer (seva chahiye)");
+        const userType = wantsWorker ? 'worker' : 'customer';
+
+        firebase.database().ref('users/' + user.uid).set({
+            uid: user.uid,
+            email: user.email,
+            name: user.displayName || 'User',
+            phone: phone,
+            userType: userType,
+            rating: 5,
+            ratingCount: 0,
+            status: "active",
+            emailVerified: true,
+            createdAt: new Date().toISOString()
+        }).then(() => {
+            setCurrentUser(user.uid, user.email, userType, user.displayName || 'User', phone);
+            redirectUser(userType);
+        });
+    }
 
     function handleSubmit() {
         const email = document.getElementById('email').value.trim();
         const password = document.getElementById('password').value;
         const userType = document.getElementById('userType').value;
         const errorEl = document.getElementById('errorMsg');
+        const successEl = document.getElementById('successMsg');
         errorEl.innerText = '';
+        successEl.innerText = '';
+        document.getElementById('verifyBox').classList.add('hidden');
 
         if (!email || !password) {
             errorEl.innerText = "Email aur Password dono bharein";
@@ -79,12 +160,39 @@
                 return;
             }
             firebase.auth().createUserWithEmailAndPassword(email, password)
-                .then((cred) => saveUserData(cred.user.uid, email, userType, name, phone))
+                .then((cred) => {
+                    saveUserData(cred.user.uid, email, userType, name, phone);
+                    return cred.user.sendEmailVerification();
+                })
+                .then(() => {
+                    document.getElementById('verifyBox').classList.remove('hidden');
+                })
                 .catch((error) => { errorEl.innerText = friendlyError(error); });
         } else {
             firebase.auth().signInWithEmailAndPassword(email, password)
-                .then((cred) => checkUserType(cred.user.uid))
+                .then((cred) => {
+                    if (!cred.user.emailVerified) {
+                        pendingUser = cred.user;
+                        errorEl.innerText = "Pehle apna email verify karein. Inbox check karein.";
+                        document.getElementById('verifyBox').classList.remove('hidden');
+                        firebase.auth().signOut();
+                        return;
+                    }
+                    checkUserType(cred.user.uid);
+                })
                 .catch((error) => { errorEl.innerText = friendlyError(error); });
+        }
+    }
+
+    function resendVerification() {
+        const successEl = document.getElementById('successMsg');
+        const errorEl = document.getElementById('errorMsg');
+        if (pendingUser) {
+            pendingUser.sendEmailVerification()
+                .then(() => { successEl.innerText = "Verification email dobara bhej diya gaya!"; })
+                .catch((e) => { errorEl.innerText = e.message; });
+        } else {
+            errorEl.innerText = "Pehle Sign Up ya Login try karein.";
         }
     }
 
@@ -98,10 +206,8 @@
             rating: 5,
             ratingCount: 0,
             status: "active",
+            emailVerified: false,
             createdAt: new Date().toISOString()
-        }).then(() => {
-            setCurrentUser(uid, email, userType, name, phone);
-            redirectUser(userType);
         });
     }
 
