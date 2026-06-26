@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GharSeva - Login</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f4f6f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 100%; max-width: 340px; text-align: center; }
+        h2 { color: #222; margin-bottom: 5px; }
+        .subtitle { color: #888; font-size: 13px; margin-bottom: 20px; }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 6px; font-size: 15px; }
+        button { width: 100%; padding: 13px; background: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 10px; }
+        button:disabled { background: #aaa; }
+        .toggle { margin-top: 15px; font-size: 14px; color: #007bff; cursor: pointer; text-decoration: underline; }
+        .error { color: #d9534f; font-size: 13px; margin-top: 8px; min-height: 16px; }
+        .extra-field { display: none; }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="shared.js"></script>
+</head>
+<body>
+
+<div class="card">
+    <h2>🏠 GharSeva</h2>
+    <p class="subtitle" id="modeText">Account banayein ya login karein</p>
+
+    <input type="text" id="name" placeholder="Pura Naam" class="extra-field">
+    <input type="tel" id="phone" placeholder="Mobile Number (10 digit)" class="extra-field">
+    <input type="email" id="email" placeholder="Email Address">
+    <input type="password" id="password" placeholder="Password (kam se kam 6 letters)">
+    <select id="userType">
+        <option value="customer">Customer (Seva Chahiye)</option>
+        <option value="worker">Worker (Kaam Chahiye)</option>
+    </select>
+
+    <button id="submitBtn" onclick="handleSubmit()">Sign Up</button>
+    <p class="error" id="errorMsg"></p>
+    <p class="toggle" id="toggleMode" onclick="toggleMode()">Pehle se account hai? Login karein</p>
+</div>
+
+<script>
+    let isSignup = true;
+
+    function toggleMode() {
+        isSignup = !isSignup;
+        document.getElementById('submitBtn').innerText = isSignup ? 'Sign Up' : 'Login';
+        document.getElementById('modeText').innerText = isSignup ? 'Naya account banayein' : 'Apne account me login karein';
+        document.getElementById('toggleMode').innerText = isSignup ? 'Pehle se account hai? Login karein' : 'Naya account banayein? Sign Up karein';
+        document.querySelectorAll('.extra-field').forEach(el => el.style.display = isSignup ? 'block' : 'none');
+        document.getElementById('errorMsg').innerText = '';
+    }
+    toggleMode(); toggleMode();
+
+    function handleSubmit() {
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const userType = document.getElementById('userType').value;
+        const errorEl = document.getElementById('errorMsg');
+        errorEl.innerText = '';
+
+        if (!email || !password) {
+            errorEl.innerText = "Email aur Password dono bharein";
+            return;
+        }
+
+        if (isSignup) {
+            const name = document.getElementById('name').value.trim();
+            const phone = document.getElementById('phone').value.trim();
+            if (!name || !phone) {
+                errorEl.innerText = "Naam aur Mobile Number bharein";
+                return;
+            }
+            if (phone.length !== 10 || isNaN(phone)) {
+                errorEl.innerText = "Sahi 10-digit mobile number dalein";
+                return;
+            }
+            firebase.auth().createUserWithEmailAndPassword(email, password)
+                .then((cred) => saveUserData(cred.user.uid, email, userType, name, phone))
+                .catch((error) => { errorEl.innerText = friendlyError(error); });
+        } else {
+            firebase.auth().signInWithEmailAndPassword(email, password)
+                .then((cred) => checkUserType(cred.user.uid))
+                .catch((error) => { errorEl.innerText = friendlyError(error); });
+        }
+    }
+
+    function saveUserData(uid, email, userType, name, phone) {
+        firebase.database().ref('users/' + uid).set({
+            uid: uid,
+            email: email,
+            name: name,
+            phone: phone,
+            userType: userType,
+            rating: 5,
+            ratingCount: 0,
+            status: "active",
+            createdAt: new Date().toISOString()
+        }).then(() => {
+            setCurrentUser(uid, email, userType, name, phone);
+            redirectUser(userType);
+        });
+    }
+
+    function checkUserType(uid) {
+        firebase.database().ref('users/' + uid).once('value').then((snapshot) => {
+            const data = snapshot.val();
+            if (!data) {
+                document.getElementById('errorMsg').innerText = "User data nahi mila. Dobara sign up karein.";
+                return;
+            }
+            setCurrentUser(uid, data.email, data.userType, data.name, data.phone);
+            redirectUser(data.userType);
+        });
+    }
+
+    function redirectUser(type) {
+        if (type === 'customer') window.location.href = 'customer.html';
+        else window.location.href = 'worker.html';
+    }
+
+    function friendlyError(error) {
+        if (error.code === 'auth/email-already-in-use') return "Ye email pehle se registered hai. Login karein.";
+        if (error.code === 'auth/wrong-password') return "Password galat hai.";
+        if (error.code === 'auth/user-not-found') return "Account nahi mila. Sign Up karein.";
+        if (error.code === 'auth/weak-password') return "Password kam se kam 6 letters ka ho.";
+        if (error.code === 'auth/invalid-email') return "Email sahi format me dalein.";
+        return error.message;
+    }
+</script>
+</body>
+</html>
