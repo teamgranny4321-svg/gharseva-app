@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GharSeva - Worker</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f4f6f9; padding: 16px; margin: 0; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .topbar h2 { margin: 0; font-size: 20px; }
+        .logout-link { color: #d9534f; font-size: 13px; cursor: pointer; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .tab-btn { flex: 1; padding: 10px; background: white; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; font-weight: bold; color: #555; }
+        .tab-btn.active { background: #007bff; color: white; border-color: #007bff; }
+
+        .alert-box { background: #fff3cd; color: #856404; padding: 12px; border-radius: 8px; margin-bottom: 16px; font-weight: bold; display: none; font-size: 14px; }
+
+        .setup-box { background: white; padding: 18px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); }
+        .service-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        .service-card { background: #f8f9fa; padding: 14px 10px; border-radius: 10px; text-align: center; cursor: pointer; border: 2px solid transparent; }
+        .service-card.selected { border-color: #007bff; background: #e7f1ff; }
+        .service-card .emoji { font-size: 26px; }
+        .service-card .name { font-weight: bold; font-size: 12px; margin-top: 4px; }
+
+        .online-toggle-box { background: white; padding: 16px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .switch { position: relative; width: 50px; height: 26px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; border-radius: 26px; transition: .3s; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .3s; }
+        input:checked + .slider { background-color: #28a745; }
+        input:checked + .slider:before { transform: translateX(24px); }
+
+        .job-card { background: white; padding: 18px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin: 12px 0; border: 2px solid #ffc107; }
+        .job-card h3 { margin-top: 0; }
+        .job-meta { font-size: 14px; color: #555; margin: 6px 0; }
+        .btn { padding: 12px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
+        .btn-accept { background: #28a745; color: white; width: 100%; }
+        .btn-row { display: flex; gap: 8px; }
+        .btn-reject { background: #eee; color: #555; flex: 1; }
+        .btn-accept-small { background: #28a745; color: white; flex: 2; }
+
+        .active-job-box { background: white; padding: 18px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); }
+        .otp-input { width: 100%; padding: 12px; font-size: 18px; text-align: center; border: 1px solid #ddd; border-radius: 8px; margin: 10px 0; letter-spacing: 4px; }
+        .btn-verify { background: #007bff; color: white; width: 100%; }
+        .customer-info { background: #f0f8ff; padding: 12px; border-radius: 8px; margin: 10px 0; font-size: 14px; }
+
+        .history-card { background: white; padding: 14px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); margin-bottom: 10px; }
+        .history-card .h-top { display: flex; justify-content: space-between; font-weight: bold; }
+        .history-card .h-meta { font-size: 12px; color: #888; margin-top: 4px; }
+        .badge { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+        .badge-completed { background: #d4edda; color: #155724; }
+        .badge-cancelled { background: #f8d7da; color: #721c24; }
+
+        .empty-state { text-align: center; color: #999; padding: 40px 10px; }
+        .hidden { display: none !important; }
+        .btn-edit-services { background: #eee; color: #555; width: 100%; margin-top: 10px; font-size: 13px; }
+        .stats-row { display:flex; gap:8px; margin-bottom:16px; }
+        .stat-box { flex:1; background:white; padding:12px; border-radius:10px; text-align:center; box-shadow: 0 2px 5px rgba(0,0,0,0.08); }
+        .stat-box .num { font-size:20px; font-weight:bold; color:#007bff; }
+        .stat-box .label { font-size:11px; color:#888; }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="shared.js"></script>
+</head>
+<body>
+
+    <div class="topbar">
+        <h2>🏠 GharSeva Worker</h2>
+        <span class="logout-link" onclick="logoutUser()">Logout</span>
+    </div>
+
+    <div class="alert-box" id="warningAlert">⚠️ Warning: Aapki rating kam ho gayi hai! Kripya kaam sudhar karein varna account ban ho sakta hai.</div>
+
+    <div class="tabs">
+        <button class="tab-btn active" id="tabWork" onclick="switchTab('work')">Kaam</button>
+        <button class="tab-btn" id="tabHistory" onclick="switchTab('history')">History</button>
+    </div>
+
+    <!-- WORK TAB -->
+    <div id="workTab">
+
+        <!-- Service selection setup (first time) -->
+        <div id="setupBox" class="setup-box hidden">
+            <h3>Aap Kaunsa Kaam Karte Hain?</h3>
+            <p style="font-size:13px; color:#777;">Ek ya zyada select karein (jis kaam me notification chahiye)</p>
+            <div class="service-grid" id="setupGrid"></div>
+            <button class="btn btn-accept" style="width:100%; margin-top:14px;" onclick="saveServices()">Save Karein</button>
+        </div>
+
+        <div id="mainWorkView" class="hidden">
+            <div class="stats-row">
+                <div class="stat-box"><div class="num" id="statRating">5.0</div><div class="label">★ Rating</div></div>
+                <div class="stat-box"><div class="num" id="statJobs">0</div><div class="label">Jobs Done</div></div>
+            </div>
+
+            <div class="online-toggle-box">
+                <div>
+                    <b id="onlineStatusText">Offline</b>
+                    <div style="font-size:12px; color:#888;">Online hokar hi job notifications milengi</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="onlineToggle" onchange="toggleOnline()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div id="noActiveJob">
+                <div id="waitingMsg" class="empty-state hidden">Naye job ka wait kar rahe hain... 🔍</div>
+                <div id="newJobsList"></div>
+                <button class="btn-edit-services" onclick="showSetup()">✏️ Apni Services Edit Karein</button>
+            </div>
+
+            <div id="activeJobBox" class="active-job-box hidden">
+                <h3 id="activeJobTitle"></h3>
+                <div class="customer-info">
+                    <p><b>Customer:</b> <span id="custName"></span></p>
+                    <p><b>Mobile:</b> <a id="custPhone" href="#"></a></p>
+                    <p><b>Distance:</b> <span id="custDistance"></span> km</p>
+                    <button class="btn btn-accept" style="margin-top:8px;" onclick="openCustomerMap()">📍 Map Par Dekhein</button>
+                </div>
+                <div id="otpSection">
+                    <p id="otpInstructions" style="font-weight:bold;"></p>
+                    <input type="number" id="otpInput" class="otp-input" placeholder="OTP Daalein">
+                    <button class="btn btn-verify" style="width:100%;" onclick="verifyOTP()">Verify OTP</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HISTORY TAB -->
+    <div id="historyTab" class="hidden">
+        <div id="historyList"></div>
+        <div id="historyEmpty" class="empty-state hidden">Abhi koi job history nahi hai.</div>
+    </div>
+
+<script>
+    const user = getCurrentUser();
+    if (!user || user.userType !== 'worker') { window.location.href = 'index.html'; }
+
+    let myServices = [];
+    let isOnline = false;
+    let myLocation = null;
+    let locationWatchId = null;
+    let currentJobId = null;
+    let jobListener = null;
+    let allJobsListener = null;
+    let step = "arrival";
+
+    // ---------------- Load worker profile ----------------
+    firebase.database().ref('users/' + user.uid).once('value').then(snap => {
+        const data = snap.val();
+        if (data) {
+            document.getElementById('statRating').innerText = (data.rating || 5).toFixed(1);
+            document.getElementById('statJobs').innerText = data.jobsCompleted || 0;
+            if (data.rating && data.rating <= 2.5 && data.ratingCount >= 3) {
+                document.getElementById('warningAlert').style.display = 'block';
+            }
+            myServices = data.services || [];
+        }
+        if (myServices.length === 0) {
+            showSetup();
+        } else {
+            document.getElementById('mainWorkView').classList.remove('hidden');
+        }
+    });
+
+    // ---------------- Setup / Edit services ----------------
+    function showSetup() {
+        document.getElementById('setupBox').classList.remove('hidden');
+        document.getElementById('mainWorkView').classList.add('hidden');
+        const grid = document.getElementById('setupGrid');
+        grid.innerHTML = '';
+        SERVICES.forEach(s => {
+            const card = document.createElement('div');
+            card.className = 'service-card' + (myServices.includes(s.id) ? ' selected' : '');
+            card.dataset.id = s.id;
+            card.innerHTML = `<div class="emoji">${s.emoji}</div><div class="name">${s.name}</div>`;
+            card.onclick = () => card.classList.toggle('selected');
+            grid.appendChild(card);
+        });
+    }
+
+    function saveServices() {
+        const selected = Array.from(document.querySelectorAll('#setupGrid .service-card.selected')).map(c => c.dataset.id);
+        if (selected.length === 0) { alert("Kam se kam ek service select karein"); return; }
+        myServices = selected;
+        firebase.database().ref('users/' + user.uid).update({ services: myServices });
+        document.getElementById('setupBox').classList.add('hidden');
+        document.getElementById('mainWorkView').classList.remove('hidden');
+    }
+
+    // ---------------- Online/Offline toggle ----------------
+    async function toggleOnline() {
+        const toggle = document.getElementById('onlineToggle');
+        if (toggle.checked) {
+            try {
+                myLocation = await getMyLocation();
+            } catch (e) {
+                alert("Online hone ke liye location access dena zaroori hai: " + e);
+                toggle.checked = false;
+                return;
+            }
+            isOnline = true;
+            document.getElementById('onlineStatusText').innerText = "Online";
+            firebase.database().ref('users/' + user.uid).update({
+                isOnline: true, lat: myLocation.lat, lng: myLocation.lng, lastSeen: new Date().toISOString()
+            });
+            startLocationWatch();
+            startListeningForJobs();
+            document.getElementById('waitingMsg').classList.remove('hidden');
+        } else {
+            isOnline = false;
+            document.getElementById('onlineStatusText').innerText = "Offline";
+            firebase.database().ref('users/' + user.uid).update({ isOnline: false });
+            stopLocationWatch();
+            stopListeningForJobs();
+            document.getElementById('waitingMsg').classList.add('hidden');
+            document.getElementById('newJobsList').innerHTML = '';
+          }
+    }
+
+    function startLocationWatch() {
+        locationWatchId = watchMyLocation((lat, lng) => {
+            myLocation = { lat, lng };
+            firebase.database().ref('users/' + user.uid).update({ lat, lng, lastSeen: new Date().toISOString() });
+            if (currentJobId) {
+                firebase.database().ref('jobs/' + currentJobId).update({ workerLat: lat, workerLng: lng });
+            }
+        });
+    }
+    function stopLocationWatch() {
+        if (locationWatchId !== null) navigator.geolocation.clearWatch(locationWatchId);
+        locationWatchId = null;
+    }
+
+    // ---------------- Listen for nearby matching jobs (status = searching) ----------------
+    function startListeningForJobs() {
+        allJobsListener = firebase.database().ref('jobs').orderByChild('status').equalTo('searching');
+        allJobsListener.on('value', (snapshot) => {
+            if (currentJobId) return;
+            const jobs = snapshot.val();
+            const listEl = document.getElementById('newJobsList');
+            listEl.innerHTML = '';
+            if (!jobs) { document.getElementById('waitingMsg').classList.remove('hidden'); return; }
+
+            const matchingJobs = Object.values(jobs).filter(job => {
+                if (!myServices.includes(job.serviceId)) return false;
+                const dist = getDistanceKm(myLocation.lat, myLocation.lng, job.customerLat, job.customerLng);
+                return dist <= 4;
+            });
+
+            if (matchingJobs.length === 0) {
+                document.getElementById('waitingMsg').classList.remove('hidden');
+                return;
+            }
+            document.getElementById('waitingMsg').classList.add('hidden');
+
+            matchingJobs.forEach(job => {
+                const dist = getDistanceKm(myLocation.lat, myLocation.lng, job.customerLat, job.customerLng).toFixed(1);
+                const card = document.createElement('div');
+                card.className = 'job-card';
+                card.innerHTML = `
+                    <h3>${job.serviceEmoji} ${job.serviceName}</h3>
+                    <div class="job-meta">📍 ${dist} km door</div>
+                    <div class="job-meta">👤 ${job.customerName}</div>
+                    <div class="btn-row">
+                        <button class="btn btn-reject" onclick="this.closest('.job-card').remove()">Ignore</button>
+                        <button class="btn btn-accept-small" onclick="acceptJob('${job.jobId}')">Accept Job</button>
+                    </div>
+                `;
+                listEl.appendChild(card);
+            });
+        });
+    }
+    function stopListeningForJobs() {
+        if (allJobsListener) allJobsListener.off('value');
+        allJobsListener = null;
+    }
+
+    // ---------------- Accept a job ----------------
+    function acceptJob(jobId) {
+        const jobRef = firebase.database().ref('jobs/' + jobId);
+        jobRef.once('value').then(snap => {
+            const job = snap.val();
+            if (!job || job.status !== 'searching') {
+                alert("Ye job ab available nahi hai (kisi aur worker ne le li).");
+                return;
+            }
+            jobRef.update({
+                status: "accepted",
+                workerUid: user.uid,
+                workerName: user.name,
+                workerPhone: user.phone,
+                workerRating: user.rating || 5,
+                workerLat: myLocation.lat,
+                workerLng: myLocation.lng
+            }).then(() => {
+                currentJobId = jobId;
+                step = "arrival";
+                document.getElementById('newJobsList').innerHTML = '';
+                document.getElementById('waitingMsg').classList.add('hidden');
+                document.getElementById('noActiveJob').classList.add('hidden');
+                document.getElementById('activeJobBox').classList.remove('hidden');
+                listenToActiveJob(jobId);
+            });
+        });
+    }
+
+    // ---------------- Listen to active job for cancellation etc ----------------
+    function listenToActiveJob(jobId) {
+        if (jobListener) firebase.database().ref('jobs/' + jobId).off('value', jobListener);
+        jobListener = (snapshot) => {
+            const job = snapshot.val();
+            if (!job) return;
+
+            document.getElementById('activeJobTitle').innerText = job.serviceEmoji + ' ' + job.serviceName;
+            document.getElementById('custName').innerText = job.customerName;
+            document.getElementById('custPhone').innerText = job.customerPhone;
+            document.getElementById('custPhone').href = "tel:" + job.customerPhone;
+            const dist = getDistanceKm(myLocation.lat, myLocation.lng, job.customerLat, job.customerLng).toFixed(1);
+            document.getElementById('custDistance').innerText = dist;
+
+            if (job.status === "accepted") {
+                document.getElementById('otpInstructions').innerText = "Pahuchne par Customer se Arrival OTP lein:";
+            } else if (job.status === "started") {
+                document.getElementById('otpInstructions').innerText = "Kaam poora hone par Customer se Completion OTP lein:";
+            } else if (job.status === "cancelled") {
+                alert("Customer ne job cancel kar di!");
+                endActiveJob();
+            }
+        };
+        firebase.database().ref('jobs/' + jobId).on('value', jobListener);
+    }
+
+    function openCustomerMap() {
+        firebase.database().ref('jobs/' + currentJobId).once('value').then(snap => {
+            const job = snap.val();
+            window.open(`https://www.google.com/maps?q=${job.customerLat},${job.customerLng}`, '_blank');
+        });
+    }
+
+    function verifyOTP() {
+        const entered = document.getElementById('otpInput').value;
+        firebase.database().ref('jobs/' + currentJobId).once('value').then(snap => {
+            const job = snap.val();
+            if (step === "arrival" && entered == job.otpArrival) {
+                firebase.database().ref('jobs/' + currentJobId).update({ status: "started" });
+                step = "complete";
+                document.getElementById('otpInput').value = "";
+                alert("Arrival OTP Verified! Kaam shuru karein.");
+            } else if (step === "complete" && entered == job.otpComplete) {
+                firebase.database().ref('jobs/' + currentJobId).update({
+                    status: "completed", completedAt: new Date().toISOString()
+                });
+                firebase.database().ref('users/' + user.uid).once('value').then(uSnap => {
+                    const u = uSnap.val();
+                    firebase.database().ref('users/' + user.uid).update({ jobsCompleted: (u.jobsCompleted || 0) + 1 });
+                });
+                alert("Kaam Poora! Job Complete Ho Gaya.");
+                endActiveJob();
+            } else {
+                alert("Galat OTP! Kripya sahi OTP customer se confirm karke dalein.");
+            }
+        });
+    }
+
+    function endActiveJob() {
+        if (jobListener && currentJobId) firebase.database().ref('jobs/' + currentJobId).off('value', jobListener);
+        currentJobId = null;
+        document.getElementById('activeJobBox').classList.add('hidden');
+        document.getElementById('noActiveJob').classList.remove('hidden');
+        document.getElementById('otpInput').value = "";
+        if (isOnline) document.getElementById('waitingMsg').classList.remove('hidden');
+        firebase.database().ref('users/' + user.uid).once('value').then(snap => {
+            const data = snap.val();
+            if (data) {
+                document.getElementById('statRating').innerText = (data.rating || 5).toFixed(1);
+                document.getElementById('statJobs').innerText = data.jobsCompleted || 0;
+            }
+        });
+    }
+
+    // ---------------- Tabs ----------------
+    function switchTab(tab) {
+        document.getElementById('tabWork').classList.toggle('active', tab === 'work');
+        document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
+        document.getElementById('workTab').classList.toggle('hidden', tab !== 'work');
+        document.getElementById('historyTab').classList.toggle('hidden', tab !== 'history');
+        if (tab === 'history') loadHistory();
+    }
+
+    function loadHistory() {
+        const listEl = document.getElementById('historyList');
+        const emptyEl = document.getElementById('historyEmpty');
+        listEl.innerHTML = '<p style="text-align:center;color:#999;">Loading...</p>';
+
+        firebase.database().ref('jobs').orderByChild('workerUid').equalTo(user.uid).once('value').then(snap => {
+            const jobs = snap.val();
+            listEl.innerHTML = '';
+            if (!jobs) { emptyEl.classList.remove('hidden'); return; }
+            emptyEl.classList.add('hidden');
+
+            const jobArr = Object.values(jobs).filter(j => j.status === 'completed' || j.status === 'cancelled');
+            jobArr.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+            if (jobArr.length === 0) { emptyEl.classList.remove('hidden'); return; }
+
+            jobArr.forEach(job => {
+                const div = document.createElement('div');
+                div.className = 'history-card';
+                const badge = job.status === 'completed' ? '<span class="badge badge-completed">Completed</span>' : '<span class="badge badge-cancelled">Cancelled</span>';
+                div.innerHTML = `
+                    <div class="h-top"><span>${job.serviceEmoji || ''} ${job.serviceName}</span>${badge}</div>
+                    <div class="h-meta">Customer: ${job.customerName} | ${new Date(job.createdAt).toLocaleDateString()} ${new Date(job.createdAt).toLocaleTimeString()}</div>
+                    ${job.rating ? `<div class="h-meta">Customer Rating: ${'⭐'.repeat(job.rating)}</div>` : ''}
+                `;
+                listEl.appendChild(div);
+            });
+        });
+    }
+
+    // ---------------- Resume active job on page reload ----------------
+    firebase.database().ref('jobs').orderByChild('workerUid').equalTo(user.uid).once('value').then(snap => {
+        const jobs = snap.val();
+        if (!jobs) return;
+        const active = Object.values(jobs).find(j => ['accepted', 'started'].includes(j.status));
+        if (active && myServices.length > 0) {
+            currentJobId = active.jobId;
+            step = active.status === 'started' ? 'complete' : 'arrival';
+            myLocation = { lat: active.workerLat, lng: active.workerLng };
+            document.getElementById('mainWorkView').classList.remove('hidden');
+            document.getElementById('noActiveJob').classList.add('hidden');
+            document.getElementById('activeJobBox').classList.remove('hidden');
+            listenToActiveJob(currentJobId);
+            startLocationWatch();
+        }
+    });
+</script>
+</body>
+</html>
