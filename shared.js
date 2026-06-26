@@ -1,9 +1,7 @@
 // ===================================================================
 // GHARSEVA - SHARED CONFIG & HELPERS
-// Ye file customer.html, worker.html, aur index.html sab use karte hain
 // ===================================================================
 
-// ⚠️ YAHAN APNA FIREBASE CONFIG DAALEIN (Firebase Console > Project Settings se copy karein)
 const firebaseConfig = {
     apiKey: "AIzaSyAl3ehdXAHRhDbz7PqdrVYoBFgfK2RFwNE",
     authDomain: "vivek-raj-f209c.firebaseapp.com",
@@ -18,12 +16,6 @@ if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
 }
 
-// Force long-lived login persistence (survives app close/reopen)
-firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e) => console.error("Persistence error:", e));
-
-// -------------------------------------------------------------------
-// 15 SERVICES LIST (Construction + Home Repair)
-// -------------------------------------------------------------------
 const SERVICES = [
     { id: "rajmistri", name: "Rajmistri (Mason)", emoji: "🧱", desc: "Deewar, plaster, tile, lentre casting" },
     { id: "beldar", name: "Beldar / Labor", emoji: "👷", desc: "Mortar milana, eint dhona, khudai" },
@@ -42,11 +34,8 @@ const SERVICES = [
     { id: "locksmith", name: "Locksmith (Chabi Wala)", emoji: "🔑", desc: "Lock kholna, nayi chabi banana" }
 ];
 
-// -------------------------------------------------------------------
-// Distance calculation (Haversine formula) - km me return karta hai
-// -------------------------------------------------------------------
 function getDistanceKm(lat1, lon1, lat2, lon2) {
-    const R = 6371; // Earth radius in km
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
@@ -56,70 +45,17 @@ function getDistanceKm(lat1, lon1, lat2, lon2) {
     return R * c;
 }
 
-// Generate random 4-digit OTP
 function generateOTP() {
     return Math.floor(1000 + Math.random() * 9000);
 }
 
-// Generate unique job ID
 function generateJobId() {
     return "job_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
 }
 
-// Get logged in user from localStorage (set after login)
 function getCurrentUser() {
     const data = localStorage.getItem('gharseva_user');
     return data ? JSON.parse(data) : null;
-}
-
-// Restores localStorage user data from Firebase Auth + Database if localStorage was cleared
-// but the Firebase Auth session is still alive. Calls callback(user) with the resolved user,
-// or callback(null) if truly logged out. Always call this on page load instead of relying
-// only on getCurrentUser() so closed/reopened apps don't get bounced to login.
-function restoreSession(callback) {
-    const cached = getCurrentUser();
-    if (cached) {
-        callback(cached);
-        return;
-    }
-    firebase.auth().onAuthStateChanged((firebaseUser) => {
-        if (!firebaseUser) {
-            callback(null);
-            return;
-        }
-        firebase.database().ref('users/' + firebaseUser.uid).once('value').then((snap) => {
-            const data = snap.val();
-            if (!data) { callback(null); return; }
-            setCurrentUser(firebaseUser.uid, data.email, data.userType, data.name, data.phone);
-            callback(getCurrentUser());
-        }).catch(() => callback(null));
-    });
-}
-
-// Play an attention sound + vibrate the phone (used for new job alerts)
-function playAlertSound() {
-    try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const playBeep = (startTime) => {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.frequency.value = 880;
-            osc.type = 'sine';
-            gain.gain.setValueAtTime(0.3, startTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
-            osc.start(startTime);
-            osc.stop(startTime + 0.3);
-        };
-        playBeep(ctx.currentTime);
-        playBeep(ctx.currentTime + 0.4);
-    } catch (e) {
-        console.error("Sound error:", e);
-    }
-    if (navigator.vibrate) {
-        navigator.vibrate([300, 150, 300, 150, 300]);
-    }
 }
 
 function setCurrentUser(uid, email, userType, name, phone) {
@@ -127,11 +63,21 @@ function setCurrentUser(uid, email, userType, name, phone) {
 }
 
 function logoutUser() {
-    localStorage.removeItem('gharseva_user');
-    window.location.href = 'index.html';
+    if (typeof firebase !== 'undefined' && firebase.auth()) {
+        firebase.auth().signOut().then(() => {
+            localStorage.removeItem('gharseva_user');
+            window.location.href = 'index.html';
+        }).catch((error) => {
+            console.error("Logout Error:", error);
+            localStorage.removeItem('gharseva_user');
+            window.location.href = 'index.html';
+        });
+    } else {
+        localStorage.removeItem('gharseva_user');
+        window.location.href = 'index.html';
+    }
 }
 
-// Get one-time browser GPS location -> returns Promise{lat, lng}
 function getMyLocation() {
     return new Promise((resolve, reject) => {
         if (!navigator.geolocation) {
@@ -146,7 +92,6 @@ function getMyLocation() {
     });
 }
 
-// Watch location continuously -> calls callback(lat, lng) every update. Returns watchId to clear later.
 function watchMyLocation(callback) {
     if (!navigator.geolocation) return null;
     return navigator.geolocation.watchPosition(
@@ -154,4 +99,4 @@ function watchMyLocation(callback) {
         (err) => console.error("Location watch error:", err.message),
         { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
     );
-                                                                                }
+}
