@@ -70,6 +70,14 @@
     let isSignup = true;
     let pendingUser = null;
 
+    // Fix 4: Persistent Auto Login Check
+    window.onload = function() {
+        const savedUser = getCurrentUser();
+        if (savedUser && savedUser.uid) {
+            redirectUser(savedUser.userType);
+        }
+    };
+
     function toggleMode() {
         isSignup = !isSignup;
         document.getElementById('submitBtn').innerText = isSignup ? 'Sign Up' : 'Login';
@@ -108,12 +116,12 @@
     }
 
     function askGoogleUserDetails(user) {
-        const phone = prompt("Aapka 10-digit Mobile Number daalein (customer/worker ko aapse contact karne ke liye):");
+        const phone = prompt("Aapka 10-digit Mobile Number daalein:");
         if (!phone || phone.length !== 10 || isNaN(phone)) {
             document.getElementById('errorMsg').innerText = "Sahi 10-digit mobile number zaroori hai.";
             return;
         }
-        const wantsWorker = confirm("Kya aap Worker (kaam chahiye) ban rahe hain?\n\nOK = Worker\nCancel = Customer (seva chahiye)");
+        const wantsWorker = confirm("Kya aap Worker (kaam chahiye) ban rahe hain?\n\nOK = Worker\nCancel = Customer");
         const userType = wantsWorker ? 'worker' : 'customer';
 
         firebase.database().ref('users/' + user.uid).set({
