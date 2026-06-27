@@ -60,7 +60,6 @@
         .stat-box .num { font-size:20px; font-weight:bold; color:#007bff; }
         .stat-box .label { font-size:11px; color:#888; }
     </style>
-    <!-- LOGOUT FIX: Added Firebase Auth -->
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
@@ -124,7 +123,6 @@
                     <input type="number" id="otpInput" class="otp-input" placeholder="OTP Daalein">
                     <button class="btn btn-verify" style="width:100%;" onclick="verifyOTP()">Verify OTP</button>
                 </div>
-                <!-- Dispute Cancel Button for Worker -->
                 <button class="btn btn-reject hidden" id="workerCancelBtn" style="width:100%; margin-top:12px;" onclick="workerCancelJob()">Cancel Job</button>
             </div>
         </div>
@@ -336,9 +334,8 @@
             else if (job.status === "started") {
                 document.getElementById('otpInstructions').innerText = "Kaam poora hone par Customer se Completion OTP lein:";
                 document.getElementById('workerMapBtn').classList.add('hidden'); 
-                document.getElementById('workerCancelBtn').classList.add('hidden'); // Initially hide
+                document.getElementById('workerCancelBtn').classList.add('hidden');
                 
-                // DISPUTE LOGIC FOR WORKER
                 if (job.startedAt) {
                     const elapsed = Date.now() - job.startedAt;
                     const waitTime = 30 * 60 * 1000;
@@ -367,7 +364,7 @@
     function openCustomerMap() {
         firebase.database().ref('jobs/' + currentJobId).once('value').then(snap => {
             const job = snap.val();
-            window.open(`https://www.google.com/maps/search/?api=1&query=${job.customerLat},${job.customerLng}`, '_blank');
+            window.location.href = `https://www.google.com/maps/search/?api=1&query=${job.customerLat},${job.customerLng}`;
         });
     }
 
@@ -376,7 +373,6 @@
         firebase.database().ref('jobs/' + currentJobId).once('value').then(snap => {
             const job = snap.val();
             if (step === "arrival" && entered == job.otpArrival) {
-                // SAVING startedAt TIMESTAMP FOR DISPUTE TIMER
                 firebase.database().ref('jobs/' + currentJobId).update({ 
                     status: "started",
                     startedAt: Date.now()
