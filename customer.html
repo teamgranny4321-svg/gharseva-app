@@ -48,7 +48,6 @@
         
         .section-title { font-size: 16px; font-weight: bold; margin: 20px 0 10px; color: #444; border-bottom: 2px solid #ddd; padding-bottom: 5px; }
     </style>
-    <!-- ADDED FIREBASE AUTH SCRIPT FOR PROPER LOGOUT -->
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
@@ -67,7 +66,6 @@
     </div>
 
     <div id="bookTab">
-        <!-- NAYA FEATURE: Multiple Active Jobs ek sath list honge -->
         <div id="activeJobsContainer" class="hidden">
             <div class="section-title">Aapke Current Jobs</div>
             <div id="activeJobsList"></div>
@@ -91,7 +89,6 @@
     let selectedRatings = {};
     let disputeTimeouts = {};
 
-    // Render Service Grid
     const grid = document.getElementById('serviceGrid');
     SERVICES.forEach(s => {
         const card = document.createElement('div');
@@ -139,7 +136,6 @@
         alert("Booking request chali gayi hai! Aapke 'Current Jobs' section me check karein.");
     }
 
-    // MULTIPLE JOBS LISTENER
     firebase.database().ref('jobs').orderByChild('customerUid').equalTo(user.uid).on('value', snap => {
         const jobs = snap.val();
         const container = document.getElementById('activeJobsContainer');
@@ -150,7 +146,6 @@
         if (jobs) {
             const jobArr = Object.values(jobs).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
             jobArr.forEach(job => {
-                // Srif Live ya Unrated jobs dikhayenge
                 if (['searching', 'accepted', 'started'].includes(job.status) || (job.status === 'completed' && !job.customerRated)) {
                     hasActive = true;
                     listDiv.appendChild(createActiveJobCard(job));
@@ -193,14 +188,12 @@
                 <p style="color:#28a745; font-weight:bold; margin:5px 0;">🔧 Kaam Shuru Ho Gaya Hai!</p>
                 <p style="margin-bottom:0; font-size:13px; color:#666;">Kaam poora hone par ye Completion OTP bataayein:</p>
                 <div class="otp-display">${job.otpComplete}</div>
-                <!-- Dispute Cancel Button (hidden initially) -->
                 <button id="cancel_${job.jobId}" class="btn btn-cancel hidden" onclick="cancelJob('${job.jobId}')">Cancel Job (Dispute)</button>
             `;
 
-            // 30 MINUTE DISPUTE LOGIC
             if (job.startedAt) {
                 const elapsed = Date.now() - job.startedAt;
-                const waitTime = 30 * 60 * 1000; // 30 minutes in ms
+                const waitTime = 30 * 60 * 1000;
                 if (elapsed >= waitTime) {
                     setTimeout(() => {
                         const btn = card.querySelector(`#cancel_${job.jobId}`);
@@ -241,7 +234,7 @@
 
     function openMap(lat, lng) {
         if (lat && lat !== 'undefined') {
-            window.open(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`, '_blank');
+            window.location.href = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
         } else {
             alert("Worker ki location abhi available nahi hai.");
         }
