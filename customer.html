@@ -234,7 +234,7 @@
 
     function openMap(lat, lng) {
         if (lat && lat !== 'undefined') {
-            window.location.href = `geo:${lat},${lng}?q=${lat},${lng}`;
+            window.location.href = `https://maps.example.com/?lat=${lat}&lng=${lng}`;
         } else {
             alert("Worker ki location abhi available nahi hai.");
         }
