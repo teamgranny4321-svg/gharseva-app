@@ -364,7 +364,7 @@
     function openCustomerMap() {
         firebase.database().ref('jobs/' + currentJobId).once('value').then(snap => {
             const job = snap.val();
-            window.location.href = `https://www.google.com/maps/search/?api=1&query=${job.customerLat},${job.customerLng}`;
+            window.location.href = `geo:${job.customerLat},${job.customerLng}?q=${job.customerLat},${job.customerLng}`;
         });
     }
 
